@@ -16,7 +16,6 @@ const corsOptions = {
 };
 app.use(cors(corsOptions));
 app.use(express.json());
-app.use(express.static(path.join(__dirname, '../hbo-max-fe')));
 
 // Database Connection
 const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://ubdaleuddin_db_user:0s9mhFpUHMeJEXLY@cluster0.svjsqry.mongodb.net/";
@@ -84,9 +83,9 @@ app.post('/api/verify', async (req, res) => {
     }
 });
 
-// Fallback for SPA
-app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, '../hbo-max-fe/index.html'));
+// Health check
+app.get('/', (req, res) => {
+    res.json({ message: 'HBO Max Clone API is live!', status: 'Running' });
 });
 
 app.listen(PORT, () => {
