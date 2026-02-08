@@ -10,12 +10,16 @@ const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'hbo-max-secret-key-2026';
 
 // Middleware
-app.use(cors());
+const corsOptions = {
+    origin: process.env.FRONTEND_URL || '*', // Fallback to * for local dev if not set
+    optionsSuccessStatus: 200
+};
+app.use(cors(corsOptions));
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../hbo-max-fe')));
 
 // Database Connection
-const MONGO_URI = "mongodb+srv://ubdaleuddin_db_user:0s9mhFpUHMeJEXLY@cluster0.svjsqry.mongodb.net/";
+const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://ubdaleuddin_db_user:0s9mhFpUHMeJEXLY@cluster0.svjsqry.mongodb.net/";
 mongoose.connect(MONGO_URI)
     .then(() => console.log('MongoDB Connected'))
     .catch(err => console.error('MongoDB Connection Error:', err));
