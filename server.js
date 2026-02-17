@@ -32,12 +32,35 @@ const User = require("./models/User");
 app.post("/api/signup", async (req, res) => {
   try {
     const { name, email, password } = req.body;
+
+    console.log("Signup attempt:", { name, email });
+
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       return res.status(400).json({ message: "User already exists" });
     }
-    const newUser = new User({ name, email, password });
+
+    // Generate custom ID starting from 0
+    // Filter only users with numeric IDs to avoid conflicts with old ObjectId users
+    const lastUser = await User.findOne({ _id: { $type: "number" } })
+      .sort({ _id: -1 })
+      .limit(1);
+    const nextId = lastUser ? lastUser._id + 1 : 0;
+
+    console.log("Generated next ID:", nextId);
+
+    const newUser = new User({
+      _id: nextId,
+      name,
+      email,
+      password,
+    });
+
+    console.log("About to save user with _id:", newUser._id);
+
     await newUser.save();
+
+    console.log("User saved successfully with ID:", newUser._id);
 
     // Auto-login: Generate JWT token after signup
     const token = jwt.sign(
@@ -56,6 +79,7 @@ app.post("/api/signup", async (req, res) => {
       },
     });
   } catch (error) {
+    console.error("Signup error:", error);
     res.status(500).json({ message: "Server error", error: error.message });
   }
 });
