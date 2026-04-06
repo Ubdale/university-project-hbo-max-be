@@ -1,9 +1,9 @@
 const express = require("express");
-const { Pool } = require("pg");
 const cors = require("cors");
-const path = require("path");
 const jwt = require("jsonwebtoken");
 require("dotenv").config();
+
+const User = require("./models/User");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -17,34 +17,10 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.use(express.json());
 
-// Database Connection
-const DATABASE_URL =
-  process.env.DATABASE_URL ||
-  "postgresql://neondb_owner:npg_QOd5esguc1Nf@ep-misty-brook-a14lfjb2.ap-southeast-1.aws.neon.tech/neondb?sslmode=require";
-
-const pool = new Pool({
-  connectionString: DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
-});
-
-// Initialize users table
-async function initDB() {
-  try {
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS users (
-        id SERIAL PRIMARY KEY,
-        name VARCHAR(255) NOT NULL,
-        email VARCHAR(255) UNIQUE NOT NULL,
-        password VARCHAR(255) NOT NULL,
-        created_at TIMESTAMP DEFAULT NOW()
-      )
-    `);
-    console.log("PostgreSQL Connected & Table Ready");
-  } catch (err) {
-    console.error("Database initialization error:", err);
-  }
-}
-initDB();
+// Initialize DB
+User.init()
+  .then(() => console.log("PostgreSQL Connected & Table Ready"))
+  .catch((err) => console.error("Database initialization error:", err));
 
 // Routes
 app.post("/api/signup", async (req, res) => {
@@ -53,18 +29,12 @@ app.post("/api/signup", async (req, res) => {
 
     console.log("Signup attempt:", { name, email });
 
-    const existing = await pool.query("SELECT id FROM users WHERE email = $1", [
-      email,
-    ]);
-    if (existing.rows.length > 0) {
+    const existing = await User.findByEmail(email);
+    if (existing) {
       return res.status(400).json({ message: "User already exists" });
     }
 
-    const result = await pool.query(
-      "INSERT INTO users (name, email, password) VALUES ($1, $2, $3) RETURNING id, name, email",
-      [name, email, password],
-    );
-    const newUser = result.rows[0];
+    const newUser = await User.create(name, email, password);
 
     console.log("User saved successfully with ID:", newUser.id);
 
@@ -93,10 +63,7 @@ app.post("/api/signup", async (req, res) => {
 app.post("/api/login", async (req, res) => {
   try {
     const { email, password } = req.body;
-    const result = await pool.query("SELECT * FROM users WHERE email = $1", [
-      email,
-    ]);
-    const user = result.rows[0];
+    const user = await User.findByEmail(email);
 
     if (!user || user.password !== password) {
       return res.status(400).json({ message: "Invalid credentials" });
@@ -130,11 +97,7 @@ app.post("/api/verify", async (req, res) => {
     }
 
     const decoded = jwt.verify(token, JWT_SECRET);
-    const result = await pool.query(
-      "SELECT id, name, email FROM users WHERE id = $1",
-      [decoded.id],
-    );
-    const user = result.rows[0];
+    const user = await User.findById(decoded.id);
 
     if (!user) {
       return res.status(401).json({ message: "User not found" });
