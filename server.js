@@ -1,5 +1,5 @@
 const express = require("express");
-const mongoose = require("mongoose");
+const { Pool } = require("pg");
 const cors = require("cors");
 const path = require("path");
 const jwt = require("jsonwebtoken");
@@ -18,53 +18,59 @@ app.use(cors(corsOptions));
 app.use(express.json());
 
 // Database Connection
-const MONGO_URI =
-  process.env.MONGO_URI ||
-  "mongodb+srv://ubdaleuddin_db_user:0s9mhFpUHMeJEXLY@cluster0.svjsqry.mongodb.net/";
-mongoose
-  .connect(MONGO_URI)
-  .then(() => console.log("MongoDB Connected"))
-  .catch((err) => console.error("MongoDB Connection Error:", err));
+const DATABASE_URL =
+  process.env.DATABASE_URL ||
+  "postgresql://neondb_owner:npg_QOd5esguc1Nf@ep-misty-brook-a14lfjb2.ap-southeast-1.aws.neon.tech/neondb?sslmode=require";
+
+const pool = new Pool({
+  connectionString: DATABASE_URL,
+  ssl: { rejectUnauthorized: false },
+});
+
+// Initialize users table
+async function initDB() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        email VARCHAR(255) UNIQUE NOT NULL,
+        password VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    console.log("PostgreSQL Connected & Table Ready");
+  } catch (err) {
+    console.error("Database initialization error:", err);
+  }
+}
+initDB();
 
 // Routes
-const User = require("./models/User");
-
 app.post("/api/signup", async (req, res) => {
   try {
     const { name, email, password } = req.body;
 
     console.log("Signup attempt:", { name, email });
 
-    const existingUser = await User.findOne({ email });
-    if (existingUser) {
+    const existing = await pool.query("SELECT id FROM users WHERE email = $1", [
+      email,
+    ]);
+    if (existing.rows.length > 0) {
       return res.status(400).json({ message: "User already exists" });
     }
 
-    // Generate custom ID starting from 0
-    // Filter only users with numeric IDs to avoid conflicts with old ObjectId users
-    const lastUser = await User.findOne({ _id: { $type: "number" } })
-      .sort({ _id: -1 })
-      .limit(1);
-    const nextId = lastUser ? lastUser._id + 1 : 0;
+    const result = await pool.query(
+      "INSERT INTO users (name, email, password) VALUES ($1, $2, $3) RETURNING id, name, email",
+      [name, email, password],
+    );
+    const newUser = result.rows[0];
 
-    console.log("Generated next ID:", nextId);
-
-    const newUser = new User({
-      _id: nextId,
-      name,
-      email,
-      password,
-    });
-
-    console.log("About to save user with _id:", newUser._id);
-
-    await newUser.save();
-
-    console.log("User saved successfully with ID:", newUser._id);
+    console.log("User saved successfully with ID:", newUser.id);
 
     // Auto-login: Generate JWT token after signup
     const token = jwt.sign(
-      { email: newUser.email, id: newUser._id },
+      { email: newUser.email, id: newUser.id },
       JWT_SECRET,
       { expiresIn: "7d" },
     );
@@ -73,7 +79,7 @@ app.post("/api/signup", async (req, res) => {
       message: "User created successfully",
       token,
       user: {
-        id: newUser._id,
+        id: newUser.id,
         name: newUser.name,
         email: newUser.email,
       },
@@ -87,13 +93,17 @@ app.post("/api/signup", async (req, res) => {
 app.post("/api/login", async (req, res) => {
   try {
     const { email, password } = req.body;
-    const user = await User.findOne({ email });
+    const result = await pool.query("SELECT * FROM users WHERE email = $1", [
+      email,
+    ]);
+    const user = result.rows[0];
+
     if (!user || user.password !== password) {
       return res.status(400).json({ message: "Invalid credentials" });
     }
 
     // Generate JWT token
-    const token = jwt.sign({ email: user.email, id: user._id }, JWT_SECRET, {
+    const token = jwt.sign({ email: user.email, id: user.id }, JWT_SECRET, {
       expiresIn: "7d",
     });
 
@@ -101,7 +111,7 @@ app.post("/api/login", async (req, res) => {
       message: "Login successful",
       token,
       user: {
-        id: user._id,
+        id: user.id,
         name: user.name,
         email: user.email,
       },
@@ -120,7 +130,11 @@ app.post("/api/verify", async (req, res) => {
     }
 
     const decoded = jwt.verify(token, JWT_SECRET);
-    const user = await User.findById(decoded.id);
+    const result = await pool.query(
+      "SELECT id, name, email FROM users WHERE id = $1",
+      [decoded.id],
+    );
+    const user = result.rows[0];
 
     if (!user) {
       return res.status(401).json({ message: "User not found" });
@@ -128,7 +142,7 @@ app.post("/api/verify", async (req, res) => {
 
     res.status(200).json({
       user: {
-        id: user._id,
+        id: user.id,
         name: user.name,
         email: user.email,
       },
